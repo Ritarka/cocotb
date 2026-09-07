@@ -10,6 +10,7 @@ from __future__ import annotations
 import decimal
 import fractions
 import os
+import sys
 from typing import Any
 
 import pytest
@@ -28,6 +29,12 @@ from cocotb.triggers import (
     ValueChange,
     with_timeout,
 )
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
+
+
+from cocotb.triggers import TaskManager
 
 LANGUAGE = os.environ["TOPLEVEL_LANG"].lower().strip()
 
@@ -181,6 +188,33 @@ async def test_clock_task_cancel(dut) -> None:
     # Ensure clock is dead.
     with pytest.raises(SimTimeoutError):
         await with_timeout(RisingEdge(dut.clk), 20, "ns")
+
+
+@cocotb.test
+@cocotb.xfail(raises=SimTimeoutError)
+@with_timeout(timeout_time=10, timeout_unit="ns")
+async def test_with_timeout_decorator(dut) -> None:
+    await Timer(20, "ns")
+
+
+@cocotb.test
+async def test_with_timeout_decorator_with_fork(dut) -> None:
+    async def foo():
+        async with TaskManager() as tm:
+
+            @tm.fork
+            @with_timeout(10, "ns")
+            async def my_thing():
+                await Timer(20, "ns")
+
+    task = cocotb.start_soon(foo())
+    try:
+        await task
+    except BaseExceptionGroup as e:
+        my_exc, rest = e.split(SimTimeoutError)
+        assert rest is None
+        assert my_exc is not None
+        assert len(my_exc.exceptions) == 1
 
 
 @cocotb.test
